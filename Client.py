@@ -10,6 +10,8 @@ from playground.network.testing import MockTransportToStorageStream
 from playground.network.testing import MockTransportToProtocol
 import random
 from playground.network.packet.fieldtypes.attributes import Optional
+from playground.common import logging as p_logging
+
 
 class PEEP(PacketType):
 
@@ -17,15 +19,10 @@ class PEEP(PacketType):
     DEFINITION_VERSION = "1.0"
 
     FIELDS = [
-
         ("type", UINT8),
-
-        ("sequenceNumber", UINT32({Optional: "True"})),
-
+        ("sequencenumber", UINT32({Optional: True})),
         ("checksum", UINT16),
-
         ("acknowledgement", UINT32({Optional: True})),
-
         ("data", BUFFER({Optional: True}))
     ]
 
@@ -39,58 +36,45 @@ class Client(Protocol):
     def tcp_checksum(self, instance):
         # instead of concat 16-bit words, we use data that is a multiple of 16
         # (i.e. 576, the whole segment)
-        print("In the checksum method.")
         all_text = str(instance.type) + str(instance.sequencenumber) + str(instance.acknowledgement) + str(instance.data)
-        print("All data received to compute the checksum.")
         sum = 0
         for i in range((0), len(all_text) - 1, 2):
             # get unicode/byte values of operands
             first_operand = ord(all_text[i])
             second_operand = ord(all_text[i + 1]) << 8
-
             # add
             current_sum = first_operand + second_operand
-
             # add and wrap around
             sum = ((sum + current_sum) & 0xffff) + ((sum + current_sum) >> 16)
         return sum
 
     def connection_made(self, transport):
         self.transport = transport
-        '''Clientpacket = PEEPPacket()
-        clientpacketbytes = Clientpacket.__serialize__()
-        self.transport.write(clientpacketbytes)'''
         if self.state == 0:
-            print("==== SYN ====")
             packet = PEEP()
             packet.type = 0
-            print("Packet type is =",packet.type)
-            packet.sequencenumber = 23232 #random.randrange(1, 1000, 1)
+            packet.sequencenumber = random.randrange(1, 1000, 1)
             packet.acknowledgement = 0
-            packet.data = b'test'
-            print("Packet data is =",packet.data)
+            #packet.data = b'test'
             self.state += 1
             packet.checksum = self.tcp_checksum(packet)
-            print("Packet checksum is =",packet.checksum)
-            chut = packet.__serialize__()
+            packs = packet.__serialize__()
+            self.transport.write(packs)
 
-            print("packet sent.")
-
-            self.transport.write(chut)
 
     def data_received(self, data):
         self.deserializer = PacketType.Deserializer()
         self.deserializer.update(data)
         for packet in self.deserializer.nextPackets():
-            if self.state == 1 and packet.Type == 1:
-                print ("==== ACK ====")
+            if self.state == 1 and packet.type == 1:
+                print ("\nSYN-ACK Received. Seqno=", packet.sequencenumber," Ackno=",packet.acknowledgement)
                 Clientpacket = PEEP()
-                Clientpacket.Type = 2
-                Clientpacket.SequenceNumber = packet.Acknowledgement
-                Clientpacket.Acknowledgement = packet.SequenceNumber + 1
+                Clientpacket.type = 2
+                Clientpacket.sequencenumber = packet.acknowledgement
+                Clientpacket.acknowledgement = packet.sequencenumber + 1
                 self.state += 1
-                a = self.tcp_checksum(Clientpacket)
-                clientpacketbytes = packet.__serialize__()
+                Clientpacket.checksum = self.tcp_checksum(Clientpacket)
+                clientpacketbytes = Clientpacket.__serialize__()
                 self.transport.write(clientpacketbytes)
 
 class initiate():
@@ -101,6 +85,7 @@ class initiate():
 
 if __name__ == "__main__":
 
+    #p_logging.EnablePresetLogging(p_logging.PRESET_TEST)
     loop = asyncio.get_event_loop()
     loop.set_debug(enabled=True)
     client = initiate()
